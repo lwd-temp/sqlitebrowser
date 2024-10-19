@@ -6,6 +6,7 @@
 #include <chrono>
 #include <QApplication>
 #include <QMessageBox>
+#include <QRegularExpression>
 
 RunSql::RunSql(DBBrowserDB& _db, QString query, int execute_from_position, int _execute_to_position, bool _interrupt_after_statements) :
     db(_db),
@@ -30,8 +31,8 @@ RunSql::RunSql(DBBrowserDB& _db, QString query, int execute_from_position, int _
     // All replacements in the query should be made by the same amount of characters, so the positions in the file
     // for error indicators and line and column logs are not displaced.
     // Whitespace and comments are discarded by SQLite, so it is better to just let it ignore them.
-    query = query.replace(QRegExp("^(\\s*)BEGIN TRANSACTION;", Qt::CaseInsensitive), "\\1                  ");
-    query = query.replace(QRegExp("COMMIT;(\\s*)$", Qt::CaseInsensitive), "       \\1");
+    query = query.replace(QRegularExpression("^(\\s*)BEGIN TRANSACTION;", QRegularExpression::CaseInsensitiveOption), "\\1                  ");
+    query = query.replace(QRegularExpression("COMMIT;(\\s*)$", QRegularExpression::CaseInsensitiveOption), "       \\1");
 
     // Convert query to byte array which we will use from now on, starting from the determined start position and
     // until the end of the SQL code. By doing so we go further than the determined end position because in Line
@@ -129,13 +130,18 @@ bool RunSql::executeNextStatement()
                 // Ask user, then check if we should abort execution or continue with it. We depend on a BlockingQueueConnection here which makes sure to
                 // block this worker thread until the slot function in the main thread is completed and could tell us about its decision.
                 emit confirmSaveBeforePragmaOrVacuum();
-                if(!queries_left_to_execute.isEmpty())
+                // We know user's answer because stopExecution will set execution_to_position to 0
+                if(execute_to_position > 0)
                 {
+                    releaseDbAccess();
                     // Commit all changes
                     db.releaseAllSavepoints();
+                    acquireDbAccess();
+                    savepoint_created = false;
                 } else {
                     // Abort
                     emit statementErrored(tr("Execution aborted by user"), execute_current_position, execute_current_position + (query_type == PragmaStatement ? 5 : 6));
+                    releaseDbAccess();
                     return false;
                 }
             }
@@ -186,7 +192,7 @@ bool RunSql::executeNextStatement()
         {
             // If we get here, the SQL statement returns some sort of data. So hand it over to the model for display. Don't set the modified flag
             // because statements that display data don't change data as well, except if the statement are one of INSERT/UPDATE/DELETE that could
-            // return datas with the RETURNING keyword.
+            // return data with the RETURNING keyword.
 
             releaseDbAccess();
 
@@ -291,6 +297,9 @@ bool RunSql::executeNextStatement()
 
 void RunSql::stopExecution()
 {
+    execute_current_position = 0;
+    execute_to_position = 0;
+    may_continue_with_execution = false;
     queries_left_to_execute.clear();
 }
 

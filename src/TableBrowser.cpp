@@ -733,6 +733,7 @@ void TableBrowser::modifyFormat(std::function<void(CondFormat&)> changeFunction)
 void TableBrowser::updateRecordsetLabel()
 {
     // Get all the numbers, i.e. the number of the first row and the last row as well as the total number of rows
+    // Internal row numbers start at 0, but we want to show them starting at 1.
     int from = ui->dataTable->verticalHeader()->visualIndexAt(0) + 1;
     int total = m_model->rowCount();
     int real_total = m_model->realRowCount();
@@ -742,7 +743,7 @@ void TableBrowser::updateRecordsetLabel()
 
     // Adjust visible rows to contents if necessary, and then take the new visible rows, which might have changed.
     if(m_adjustRows) {
-        for(int i=from; i<=to; i++)
+        for(int i=from-1; i<=to-1; i++)
             ui->dataTable->resizeRowToContents(i);
         from = ui->dataTable->verticalHeader()->visualIndexAt(0) + 1;
         to = from + ui->dataTable->numVisibleRows() - 1;
@@ -1580,7 +1581,12 @@ void TableBrowser::jumpToRow(const sqlb::ObjectIdentifier& table, std::string co
 static QString replaceInValue(QString value, const QString& find, const QString& replace, Qt::MatchFlags flags)
 {
     // Helper function which replaces a string in another string by a third string. It uses regular expressions if told so.
-    if(flags.testFlag(Qt::MatchRegExp))
+#if QT_VERSION < QT_VERSION_CHECK(5, 15, 0)
+    auto match_flag = Qt::MatchRegExp;
+#else
+    auto match_flag = Qt::MatchRegularExpression;
+#endif
+    if(flags.testFlag(match_flag))
     {
         QRegularExpression reg_exp(find, (flags.testFlag(Qt::MatchCaseSensitive) ? QRegularExpression::NoPatternOption : QRegularExpression::CaseInsensitiveOption));
         if(!flags.testFlag(Qt::MatchContains))
@@ -1625,8 +1631,13 @@ void TableBrowser::find(const QString& expr, bool forward, bool include_first, R
     else
         flags |= Qt::MatchContains;
 
+#if QT_VERSION < QT_VERSION_CHECK(5, 15, 0)
+    auto match_flag = Qt::MatchRegExp;
+#else
+    auto match_flag = Qt::MatchRegularExpression;
+#endif
     if(ui->checkFindRegEx->isChecked())
-        flags |= Qt::MatchRegExp;
+        flags |= match_flag;
 
     // Prepare list of columns to search in. We only search in non-hidden rows
     std::vector<int> column_list;
